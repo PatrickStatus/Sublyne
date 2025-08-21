@@ -29,7 +29,7 @@
       "ip_version": 6
     },
     {
-      "name": "tun_por",
+      "name": "tun_port",
       "required": true,
       "input": "port"
     },
