@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ip link add "{{ interface }}" type geneve id "{{ key }}" local "{{ ip_dest }}" remote "{{ ip_origin }}"
+ip addr add "{{ dest_private_ip }}" dev "{{ interface }}"
+ip link set dev "{{ interface }}" mtu 1464
+ip link set dev "{{ interface }}" up
+ping -c 4 "{{ origin_private_ip }}"
