@@ -1,0 +1,21 @@
+{
+  "type": "edit",
+  "role": "origin",
+  "fields": [
+    {
+      "name": "forward_method",
+      "required": true,
+      "input": "text"
+    },
+    {
+      "name": "traffic_limit",
+      "required": true,
+      "input": "number",
+      "constraints": {
+        "numeric": true,
+        "minLength": 1,
+        "maxLength": 7
+      }
+    }
+  ]
+}
