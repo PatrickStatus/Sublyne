@@ -1,0 +1,42 @@
+{
+  "type": "genev",
+  "role": "dest",
+  "fields": [
+    {
+      "name": "interface",
+      "required": true,
+      "input": "text",
+      "constraints": {
+        "minLength": 3,
+        "maxLength": 30
+      }
+    },
+    {
+      "name": "server_type",
+      "required": true,
+      "input": "text"
+    },
+    {
+      "name": "ip_origin",
+      "required": true,
+      "input": "ip",
+      "ip_version": 4
+    },
+    {
+      "name": "ip_dest",
+      "required": true,
+      "input": "ip",
+      "ip_version": 4
+    },
+    {
+      "name": "key",
+      "required": true,
+      "input": "number",
+      "constraints": {
+        "numeric": true,
+        "minLength": 4,
+        "maxLength": 6
+      }
+    }
+  ]
+}
