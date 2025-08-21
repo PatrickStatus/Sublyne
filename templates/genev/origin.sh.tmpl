@@ -5,3 +5,4 @@ ip link add "{{ interface }}" type geneve id "{{ key }}" local "{{ ip_origin }}"
 ip addr add "{{ origin_private_ip }}" dev "{{ interface }}"
 ip link set dev "{{ interface }}" mtu 1464
 ip link set dev "{{ interface }}" up
+ping -c 4 "{{ dest_private_ip }}"
