@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ip -6 tunnel add "{{ interface }}" mode ip6ip6 local "{{ ip_dest }}" remote "{{ ip_origin }}" ttl 255
+ip -6 addr add "{{ dest_private_ip }}" dev "{{ interface }}"
+ip link set "{{ interface }}" mtu 1420
+ip link set "{{ interface }}" up
