@@ -5,4 +5,3 @@ ip tunnel add "{{ interface }}" mode gre local "{{ ip_origin }}" remote "{{ ip_d
 ip addr add "{{ origin_private_ip }}" dev "{{ interface }}"
 ip link set dev "{{ interface }}" mtu 1472
 ip link set dev "{{ interface }}" up
-ping -c 4 "{{ dest_private_ip }}"
