@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ip link add "{{ interface }}" type erspan erspan_ver 2 local "{{ ip_dest }}" remote "{{ ip_origin }}" ttl 255 key "{{ key }}"
+ip addr add "{{ dest_private_ip }}" dev "{{ interface }}"
+ip link set dev "{{ interface }}" mtu 1464
+ip link set dev "{{ interface }}" up
