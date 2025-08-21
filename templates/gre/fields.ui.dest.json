@@ -14,7 +14,7 @@
     {
       "name": "server_type",
       "required": true,
-      "input": "type"
+      "input": "text"
     },
     {
       "name": "ip_origin",
