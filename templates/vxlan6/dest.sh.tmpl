@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ip link add "{{ interface }}" type vxlan id "{{ key }}" local "{{ ip_dest }}" remote "{{ ip_origin }}" dstport "{{ tun_port }}" ttl 255
+ip addr add "{{ dest_private_ip }}" dev "{{ interface }}"
+ip link set dev "{{ interface }}" mtu 1444
+ip link set dev "{{ interface }}" up
