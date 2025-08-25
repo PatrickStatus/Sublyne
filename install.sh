@@ -16,7 +16,7 @@ fi
 echo "[1/8] Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y python3 python3-pip python3-venv git wget curl iptables-persistent > /dev/null 2>&1
+apt-get install -y python3 python3-pip python3-venv git wget curl iptables-persistent unzip > /dev/null 2>&1
 echo "✅ System packages updated"
 
 # Install Gost with correct format
@@ -67,16 +67,26 @@ else
     echo "✅ User sublyne already exists"
 fi
 
-# Download project
-echo "[4/8] Downloading Sublyne project..."
-rm -rf /tmp/sublyne-download
-mkdir -p /tmp/sublyne-download
-cd /tmp/sublyne-download
+# Extract project from local zip file
+echo "[4/8] Extracting Sublyne project from local zip..."
+rm -rf /tmp/sublyne-extract
+mkdir -p /tmp/sublyne-extract
 
-if timeout 120 git clone -q https://github.com/PatrickStatus/Sublyne.git .; then
-    echo "✅ Project downloaded successfully"
+# Find the script directory (where install.sh is located)
+SCRIPT_DIR="$(dirname "$(readlink -f "$0}")"
+ZIP_FILE="$SCRIPT_DIR/sublyne.zip"
+
+if [ ! -f "$ZIP_FILE" ]; then
+    echo "❌ sublyne.zip not found in $SCRIPT_DIR"
+    echo "Please make sure sublyne.zip is in the same directory as install.sh"
+    exit 1
+fi
+
+echo "Extracting $ZIP_FILE to /tmp/sublyne-extract..."
+if unzip -q "$ZIP_FILE" -d /tmp/sublyne-extract; then
+    echo "✅ Project extracted successfully"
 else
-    echo "❌ Failed to clone repository"
+    echo "❌ Failed to extract sublyne.zip"
     exit 1
 fi
 
@@ -84,31 +94,42 @@ fi
 echo "[5/8] Setting up project files..."
 rm -rf /opt/sublyne
 mkdir -p /opt/sublyne
-cp -r * /opt/sublyne/
+
+# Copy all extracted files with absolute paths
+cp -a /tmp/sublyne-extract/* /opt/sublyne/ 2>/dev/null || cp -a /tmp/sublyne-extract/.* /opt/sublyne/ 2>/dev/null || true
 chown -R sublyne:sublyne /opt/sublyne
 echo "✅ Project files copied"
 
-# Setup Python environment
-echo "[6/8] Setting up Python environment..."
-cd /opt/sublyne
-
-# Check if requirements.txt exists
-if [ ! -f "requirements.txt" ]; then
-    echo "❌ requirements.txt not found in /opt/sublyne"
-    echo "Available files:"
-    ls -la
+# Verify project structure
+echo "Verifying project structure..."
+if [ ! -d "/opt/sublyne/backend" ]; then
+    echo "❌ Backend directory not found"
+    echo "Available directories in /opt/sublyne:"
+    ls -la /opt/sublyne/
     exit 1
 fi
 
-sudo -u sublyne python3 -m venv venv
-sudo -u sublyne ./venv/bin/pip install -q --upgrade pip
-sudo -u sublyne ./venv/bin/pip install -q -r requirements.txt
+if [ ! -f "/opt/sublyne/requirements.txt" ]; then
+    echo "❌ requirements.txt not found"
+    echo "Available files in /opt/sublyne:"
+    ls -la /opt/sublyne/
+    exit 1
+fi
+
+echo "✅ Project structure verified"
+
+# Setup Python environment
+echo "[6/8] Setting up Python environment..."
+# Use absolute paths, no cd
+sudo -u sublyne python3 -m venv /opt/sublyne/venv
+sudo -u sublyne /opt/sublyne/venv/bin/pip install -q --upgrade pip
+sudo -u sublyne /opt/sublyne/venv/bin/pip install -q -r /opt/sublyne/requirements.txt
 echo "✅ Python environment ready"
 
 # Initialize database
 echo "[7/8] Initializing database..."
-cd /opt/sublyne/backend
-sudo -u sublyne ../venv/bin/python -c "from app.db.init_db import init_database; init_database()" 2>/dev/null || echo "Database already exists"
+# Use absolute paths for database initialization
+sudo -u sublyne /opt/sublyne/venv/bin/python -c "import sys; sys.path.append('/opt/sublyne/backend'); from app.db.init_db import init_database; init_database()" 2>/dev/null || echo "Database already exists"
 echo "✅ Database initialized"
 
 # Create and start service
@@ -140,7 +161,7 @@ systemctl start sublyne
 echo "✅ Service created and started"
 
 # Cleanup
-rm -rf /tmp/sublyne-download
+rm -rf /tmp/sublyne-extract
 
 # Check status
 echo "Checking service status..."
