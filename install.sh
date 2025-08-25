@@ -7,6 +7,10 @@ set -e
 
 echo "[INFO] Starting Sublyne installation..."
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+echo "[INFO] Script directory: $SCRIPT_DIR"
+
 # Function to check if running as root
 check_root() {
     if [[ $EUID -eq 0 ]]; then
@@ -86,6 +90,17 @@ install_gost() {
 setup_python_env() {
     echo "[INFO] Setting up Python environment..."
     
+    # Change to script directory to ensure we find requirements.txt
+    cd "$SCRIPT_DIR"
+    
+    # Verify requirements.txt exists
+    if [ ! -f "requirements.txt" ]; then
+        echo "[ERROR] requirements.txt not found in $SCRIPT_DIR"
+        exit 1
+    fi
+    
+    echo "[INFO] Found requirements.txt at: $(pwd)/requirements.txt"
+    
     # Create virtual environment if it doesn't exist
     if [ ! -d "venv" ]; then
         python3 -m venv venv
@@ -110,9 +125,6 @@ create_sublyne_user() {
         else
             echo "[INFO] User 'sublyne' already exists"
         fi
-        
-        # Set ownership of project files
-        $SUDO_CMD chown -R sublyne:sublyne /opt/sublyne 2>/dev/null || true
     fi
 }
 
@@ -125,8 +137,8 @@ setup_project_dir() {
     # Create project directory
     $SUDO_CMD mkdir -p "$PROJECT_DIR"
     
-    # Copy project files
-    $SUDO_CMD cp -r . "$PROJECT_DIR/"
+    # Copy project files from script directory
+    $SUDO_CMD cp -r "$SCRIPT_DIR"/* "$PROJECT_DIR/"
     
     # Set proper permissions
     if [[ $EUID -eq 0 ]]; then
@@ -175,9 +187,14 @@ main() {
     setup_iptables
     install_gost
     create_sublyne_user
+    
+    # Setup Python environment in current directory first
+    setup_python_env
+    
+    # Then setup project directory
     setup_project_dir
     
-    # Change to project directory for Python setup
+    # Setup Python environment in project directory
     cd /opt/sublyne
     setup_python_env
     setup_systemd_service
