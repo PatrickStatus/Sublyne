@@ -67,20 +67,36 @@ else
     echo "✅ User sublyne already exists"
 fi
 
+# Download Sublyne project from GitHub
+echo "[3/8] Downloading Sublyne project from GitHub..."
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+ZIP_FILE="$SCRIPT_DIR/sublyne.zip"
+
+# Download the zip file if it doesn't exist
+if [ ! -f "$ZIP_FILE" ]; then
+    echo "Downloading sublyne.zip from GitHub..."
+    if command -v wget >/dev/null 2>&1; then
+        wget -O "$ZIP_FILE" "https://github.com/PatrickStatus/Sublyne/raw/main/sublyne.zip"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -L -o "$ZIP_FILE" "https://github.com/PatrickStatus/Sublyne/raw/main/sublyne.zip"
+    else
+        echo "❌ Neither wget nor curl is available. Please install one of them."
+        exit 1
+    fi
+    
+    if [ ! -f "$ZIP_FILE" ]; then
+        echo "❌ Failed to download sublyne.zip"
+        exit 1
+    fi
+    echo "✅ sublyne.zip downloaded successfully"
+else
+    echo "✅ sublyne.zip already exists, skipping download"
+fi
+
 # Extract project from local zip file
 echo "[4/8] Extracting Sublyne project from local zip..."
 rm -rf /tmp/sublyne-extract
 mkdir -p /tmp/sublyne-extract
-
-# Find the script directory (where install.sh is located)
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-ZIP_FILE="$SCRIPT_DIR/sublyne.zip"
-
-if [ ! -f "$ZIP_FILE" ]; then
-    echo "❌ sublyne.zip not found in $SCRIPT_DIR"
-    echo "Please make sure sublyne.zip is in the same directory as install.sh"
-    exit 1
-fi
 
 echo "Extracting $ZIP_FILE to /tmp/sublyne-extract..."
 if unzip -q "$ZIP_FILE" -d /tmp/sublyne-extract; then
