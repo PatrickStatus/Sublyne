@@ -73,7 +73,7 @@ rm -rf /tmp/sublyne-extract
 mkdir -p /tmp/sublyne-extract
 
 # Find the script directory (where install.sh is located)
-SCRIPT_DIR="$(dirname "$(readlink -f "$0}")"
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ZIP_FILE="$SCRIPT_DIR/sublyne.zip"
 
 if [ ! -f "$ZIP_FILE" ]; then
