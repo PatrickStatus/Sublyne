@@ -7,9 +7,34 @@ set -e
 
 echo "[INFO] Starting Sublyne installation..."
 
-# Get the absolute path of the script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-echo "[INFO] Script directory: $SCRIPT_DIR"
+# Define project source directory - adjust this path as needed
+if [ -n "$1" ]; then
+    PROJECT_SOURCE="$1"
+else
+    # Try to detect the script directory
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_SOURCE="$SCRIPT_DIR"
+fi
+
+echo "[INFO] Project source directory: $PROJECT_SOURCE"
+echo "[INFO] Current working directory: $(pwd)"
+
+# Verify project source directory exists and contains requirements.txt
+if [ ! -d "$PROJECT_SOURCE" ]; then
+    echo "[ERROR] Project source directory does not exist: $PROJECT_SOURCE"
+    exit 1
+fi
+
+if [ ! -f "$PROJECT_SOURCE/requirements.txt" ]; then
+    echo "[ERROR] requirements.txt not found in: $PROJECT_SOURCE"
+    echo "[INFO] Contents of $PROJECT_SOURCE:"
+    ls -la "$PROJECT_SOURCE"
+    echo "[INFO] Please run this script from the Sublyne project directory or provide the correct path as argument"
+    echo "[INFO] Usage: $0 [project_directory]"
+    exit 1
+fi
+
+echo "[INFO] Found requirements.txt at: $PROJECT_SOURCE/requirements.txt"
 
 # Function to check if running as root
 check_root() {
@@ -99,7 +124,7 @@ setup_python_env() {
         echo "[ERROR] requirements.txt not found in $target_dir"
         echo "[INFO] Contents of directory:"
         ls -la
-        exit 1
+        return 1
     fi
     
     echo "[INFO] Found requirements.txt at: $(pwd)/requirements.txt"
@@ -140,9 +165,9 @@ setup_project_dir() {
     # Create project directory
     $SUDO_CMD mkdir -p "$PROJECT_DIR"
     
-    # Copy project files from script directory
-    echo "[INFO] Copying files from $SCRIPT_DIR to $PROJECT_DIR"
-    $SUDO_CMD cp -r "$SCRIPT_DIR"/* "$PROJECT_DIR/"
+    # Copy project files from source directory
+    echo "[INFO] Copying files from $PROJECT_SOURCE to $PROJECT_DIR"
+    $SUDO_CMD cp -r "$PROJECT_SOURCE"/* "$PROJECT_DIR/"
     
     # Set proper permissions
     if [[ $EUID -eq 0 ]]; then
@@ -185,8 +210,6 @@ EOF
 # Main installation function
 main() {
     echo "[INFO] Starting Sublyne installation process..."
-    echo "[INFO] Current working directory: $(pwd)"
-    echo "[INFO] Script location: $SCRIPT_DIR"
     
     check_root
     install_system_deps
@@ -194,9 +217,9 @@ main() {
     install_gost
     create_sublyne_user
     
-    # Setup Python environment in script directory first
+    # Setup Python environment in source directory first
     echo "[INFO] Setting up Python environment in source directory..."
-    setup_python_env "$SCRIPT_DIR"
+    setup_python_env "$PROJECT_SOURCE"
     
     # Then setup project directory
     setup_project_dir
