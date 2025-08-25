@@ -1,113 +1,189 @@
 #!/bin/bash
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Sublyne Installation Script
+# This script installs all required dependencies for Sublyne project
 
-# Function to print colored output
-print_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+set -e
 
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
+echo "[INFO] Starting Sublyne installation..."
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Get the directory where the script is located
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_DIR="${1:-$SCRIPT_DIR}"
-
-print_info "Script directory: $SCRIPT_DIR"
-print_info "Project directory: $PROJECT_DIR"
-
-# Change to project directory
-cd "$PROJECT_DIR" || {
-    print_error "Cannot change to project directory: $PROJECT_DIR"
-    exit 1
-}
-
-print_info "Current working directory: $(pwd)"
-print_info "Contents of current directory:"
-ls -la
-
-# Check if requirements.txt exists
-if [ ! -f "requirements.txt" ]; then
-    print_error "requirements.txt not found in: $(pwd)"
-    print_info "Contents of $(pwd):"
-    ls -la
-    print_info "Please run this script from the Sublyne project directory or provide the correct path as argument"
-    print_info "Usage: bash install.sh [project_directory]"
-    exit 1
-fi
-
-print_success "Found requirements.txt in: $(pwd)"
-
-# Update system packages
-print_info "Updating system packages..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get upgrade -y
-
-# Install system dependencies
-print_info "Installing system dependencies..."
-apt-get install -y python3 python3-pip python3-venv git curl wget iptables-persistent
-
-# Download and install Gost
-print_info "Installing Gost..."
-wget -O /tmp/gost.tar.gz https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.tar.gz
-tar -xzf /tmp/gost.tar.gz -C /tmp/
-mv /tmp/gost-linux-amd64-2.11.5/gost /usr/local/bin/
-chmod +x /usr/local/bin/gost
-rm -rf /tmp/gost*
-
-# Create sublyne user if it doesn't exist
-if ! id "sublyne" &>/dev/null; then
-    print_info "Creating sublyne user..."
-    useradd -r -s /bin/bash -d /opt/sublyne sublyne
-fi
-
-# Create project directory
-print_info "Setting up project directory..."
-mkdir -p /opt/sublyne
-cp -r "$PROJECT_DIR"/* /opt/sublyne/
-chown -R sublyne:sublyne /opt/sublyne
-
-# Setup Python virtual environment
-print_info "Setting up Python virtual environment..."
-cd /opt/sublyne
-sudo -u sublyne python3 -m venv venv
-sudo -u sublyne /opt/sublyne/venv/bin/pip install --upgrade pip
-
-# Install Python dependencies
-print_info "Installing Python dependencies..."
-if [ -f "/opt/sublyne/requirements.txt" ]; then
-    sudo -u sublyne /opt/sublyne/venv/bin/pip install -r /opt/sublyne/requirements.txt
-    print_success "Python dependencies installed successfully"
+# Define project source directory - adjust this path as needed
+if [ -n "$1" ]; then
+    PROJECT_SOURCE="$1"
 else
-    print_error "requirements.txt not found in /opt/sublyne"
+    # Try to detect the script directory
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_SOURCE="$SCRIPT_DIR"
+fi
+
+echo "[INFO] Project source directory: $PROJECT_SOURCE"
+echo "[INFO] Current working directory: $(pwd)"
+
+# Verify project source directory exists and contains requirements.txt
+if [ ! -d "$PROJECT_SOURCE" ]; then
+    echo "[ERROR] Project source directory does not exist: $PROJECT_SOURCE"
     exit 1
 fi
 
-# Make startup script executable
-if [ -f "/opt/sublyne/backend/startup.sh" ]; then
-    chmod +x /opt/sublyne/backend/startup.sh
-    print_success "Made startup.sh executable"
+if [ ! -f "$PROJECT_SOURCE/requirements.txt" ]; then
+    echo "[ERROR] requirements.txt not found in: $PROJECT_SOURCE"
+    echo "[INFO] Contents of $PROJECT_SOURCE:"
+    ls -la "$PROJECT_SOURCE"
+    echo "[INFO] Please run this script from the Sublyne project directory or provide the correct path as argument"
+    echo "[INFO] Usage: $0 [project_directory]"
+    exit 1
 fi
 
-# Create systemd service
-print_info "Creating systemd service..."
-cat > /etc/systemd/system/sublyne.service << EOF
+echo "[INFO] Found requirements.txt at: $PROJECT_SOURCE/requirements.txt"
+
+# Function to check if running as root
+check_root() {
+    if [[ $EUID -eq 0 ]]; then
+        echo "[INFO] Running as root user"
+        SUDO_CMD=""
+    else
+        echo "[INFO] Running as regular user, will use sudo for system operations"
+        SUDO_CMD="sudo"
+    fi
+}
+
+# Function to install system dependencies
+install_system_deps() {
+    echo "[INFO] Installing system dependencies..."
+    
+    # Set non-interactive mode for apt
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Update package list
+    $SUDO_CMD apt-get update -y
+    
+    # Install required packages
+    $SUDO_CMD apt-get install -y \
+        python3 \
+        python3-pip \
+        python3-venv \
+        iptables \
+        iptables-persistent \
+        wget \
+        curl \
+        unzip \
+        net-tools \
+        iproute2
+    
+    echo "[INFO] System dependencies installed successfully"
+}
+
+# Function to setup iptables-persistent
+setup_iptables() {
+    echo "[INFO] Setting up iptables-persistent..."
+    
+    # Pre-configure iptables-persistent to avoid interactive prompts
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | $SUDO_CMD debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | $SUDO_CMD debconf-set-selections
+    
+    # Save current iptables rules
+    $SUDO_CMD iptables-save > /tmp/rules.v4
+    $SUDO_CMD ip6tables-save > /tmp/rules.v6
+    $SUDO_CMD mv /tmp/rules.v4 /etc/iptables/rules.v4
+    $SUDO_CMD mv /tmp/rules.v6 /etc/iptables/rules.v6
+    
+    echo "[INFO] iptables-persistent configured successfully"
+}
+
+# Function to install Gost
+install_gost() {
+    echo "[INFO] Installing Gost..."
+    
+    # Download Gost
+    GOST_VERSION="2.11.5"
+    GOST_URL="https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-amd64-${GOST_VERSION}.gz"
+    
+    cd /tmp
+    wget -O gost-linux-amd64.gz "$GOST_URL"
+    
+    # Extract Gost
+    gunzip gost-linux-amd64.gz
+    
+    # Install Gost
+    $SUDO_CMD mv gost-linux-amd64 /usr/local/bin/gost
+    $SUDO_CMD chmod +x /usr/local/bin/gost
+    
+    echo "[INFO] Gost installed successfully"
+}
+
+# Function to setup Python environment
+setup_python_env() {
+    local target_dir="$1"
+    echo "[INFO] Setting up Python environment in: $target_dir"
+    
+    # Change to target directory
+    cd "$target_dir"
+    
+    # Verify requirements.txt exists
+    if [ ! -f "requirements.txt" ]; then
+        echo "[ERROR] requirements.txt not found in $target_dir"
+        echo "[INFO] Contents of directory:"
+        ls -la
+        return 1
+    fi
+    
+    echo "[INFO] Found requirements.txt at: $(pwd)/requirements.txt"
+    
+    # Create virtual environment if it doesn't exist
+    if [ ! -d "venv" ]; then
+        python3 -m venv venv
+    fi
+    
+    # Activate virtual environment and install requirements
+    source venv/bin/activate
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    
+    echo "[INFO] Python environment setup completed in $target_dir"
+}
+
+# Function to create sublyne user
+create_sublyne_user() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "[INFO] Creating sublyne user..."
+        
+        if ! id "sublyne" &>/dev/null; then
+            $SUDO_CMD useradd -m -s /bin/bash sublyne
+            echo "[INFO] User 'sublyne' created successfully"
+        else
+            echo "[INFO] User 'sublyne' already exists"
+        fi
+    fi
+}
+
+# Function to setup project directory
+setup_project_dir() {
+    echo "[INFO] Setting up project directory..."
+    
+    PROJECT_DIR="/opt/sublyne"
+    
+    # Create project directory
+    $SUDO_CMD mkdir -p "$PROJECT_DIR"
+    
+    # Copy project files from source directory
+    echo "[INFO] Copying files from $PROJECT_SOURCE to $PROJECT_DIR"
+    $SUDO_CMD cp -r "$PROJECT_SOURCE"/* "$PROJECT_DIR/"
+    
+    # Set proper permissions
+    if [[ $EUID -eq 0 ]]; then
+        chown -R root:root "$PROJECT_DIR"
+    else
+        $SUDO_CMD chown -R sublyne:sublyne "$PROJECT_DIR"
+    fi
+    
+    echo "[INFO] Project directory setup completed"
+}
+
+# Function to setup systemd service
+setup_systemd_service() {
+    echo "[INFO] Setting up systemd service..."
+    
+    cat > /tmp/sublyne.service << EOF
 [Unit]
 Description=Sublyne Tunnel Management Service
 After=network.target
@@ -115,39 +191,49 @@ After=network.target
 [Service]
 Type=simple
 User=sublyne
-Group=sublyne
 WorkingDirectory=/opt/sublyne/backend
-Environment=PATH=/opt/sublyne/venv/bin
 ExecStart=/opt/sublyne/venv/bin/python main.py
-ExecStartPre=/opt/sublyne/backend/startup.sh
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    
+    $SUDO_CMD mv /tmp/sublyne.service /etc/systemd/system/
+    $SUDO_CMD systemctl daemon-reload
+    $SUDO_CMD systemctl enable sublyne
+    
+    echo "[INFO] Systemd service setup completed"
+}
 
-# Enable and start the service
-print_info "Enabling and starting Sublyne service..."
-systemctl daemon-reload
-systemctl enable sublyne
-systemctl start sublyne
+# Main installation function
+main() {
+    echo "[INFO] Starting Sublyne installation process..."
+    
+    check_root
+    install_system_deps
+    setup_iptables
+    install_gost
+    create_sublyne_user
+    
+    # Setup Python environment in source directory first
+    echo "[INFO] Setting up Python environment in source directory..."
+    setup_python_env "$PROJECT_SOURCE"
+    
+    # Then setup project directory
+    setup_project_dir
+    
+    # Setup Python environment in project directory
+    echo "[INFO] Setting up Python environment in project directory..."
+    setup_python_env "/opt/sublyne"
+    
+    setup_systemd_service
+    
+    echo "[SUCCESS] Sublyne installation completed successfully!"
+    echo "[INFO] You can start the service with: sudo systemctl start sublyne"
+    echo "[INFO] Check service status with: sudo systemctl status sublyne"
+}
 
-# Check service status
-print_info "Checking service status..."
-sleep 5
-if systemctl is-active --quiet sublyne; then
-    print_success "Sublyne service is running successfully!"
-    print_info "Service status:"
-    systemctl status sublyne --no-pager
-else
-    print_error "Sublyne service failed to start"
-    print_info "Service logs:"
-    journalctl -u sublyne --no-pager -n 20
-    exit 1
-fi
-
-print_success "Installation completed successfully!"
-print_info "Sublyne is now running on http://localhost:8000"
-print_info "You can check the service status with: systemctl status sublyne"
-print_info "View logs with: journalctl -u sublyne -f"
+# Run main function
+main "$@"
