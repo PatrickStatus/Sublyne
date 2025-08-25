@@ -7,8 +7,8 @@ set -e
 
 echo "[INFO] Starting Sublyne installation..."
 
-# Get the directory where the script is located
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Get the absolute path of the script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "[INFO] Script directory: $SCRIPT_DIR"
 
 # Function to check if running as root
@@ -88,14 +88,17 @@ install_gost() {
 
 # Function to setup Python environment
 setup_python_env() {
-    echo "[INFO] Setting up Python environment..."
+    local target_dir="$1"
+    echo "[INFO] Setting up Python environment in: $target_dir"
     
-    # Change to script directory to ensure we find requirements.txt
-    cd "$SCRIPT_DIR"
+    # Change to target directory
+    cd "$target_dir"
     
     # Verify requirements.txt exists
     if [ ! -f "requirements.txt" ]; then
-        echo "[ERROR] requirements.txt not found in $SCRIPT_DIR"
+        echo "[ERROR] requirements.txt not found in $target_dir"
+        echo "[INFO] Contents of directory:"
+        ls -la
         exit 1
     fi
     
@@ -111,7 +114,7 @@ setup_python_env() {
     pip install --upgrade pip
     pip install -r requirements.txt
     
-    echo "[INFO] Python environment setup completed"
+    echo "[INFO] Python environment setup completed in $target_dir"
 }
 
 # Function to create sublyne user
@@ -138,6 +141,7 @@ setup_project_dir() {
     $SUDO_CMD mkdir -p "$PROJECT_DIR"
     
     # Copy project files from script directory
+    echo "[INFO] Copying files from $SCRIPT_DIR to $PROJECT_DIR"
     $SUDO_CMD cp -r "$SCRIPT_DIR"/* "$PROJECT_DIR/"
     
     # Set proper permissions
@@ -181,6 +185,8 @@ EOF
 # Main installation function
 main() {
     echo "[INFO] Starting Sublyne installation process..."
+    echo "[INFO] Current working directory: $(pwd)"
+    echo "[INFO] Script location: $SCRIPT_DIR"
     
     check_root
     install_system_deps
@@ -188,15 +194,17 @@ main() {
     install_gost
     create_sublyne_user
     
-    # Setup Python environment in current directory first
-    setup_python_env
+    # Setup Python environment in script directory first
+    echo "[INFO] Setting up Python environment in source directory..."
+    setup_python_env "$SCRIPT_DIR"
     
     # Then setup project directory
     setup_project_dir
     
     # Setup Python environment in project directory
-    cd /opt/sublyne
-    setup_python_env
+    echo "[INFO] Setting up Python environment in project directory..."
+    setup_python_env "/opt/sublyne"
+    
     setup_systemd_service
     
     echo "[SUCCESS] Sublyne installation completed successfully!"
