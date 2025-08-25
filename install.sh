@@ -46,7 +46,8 @@ $SUDO_CMD apt update && $SUDO_CMD apt upgrade -y
 
 # Install required system dependencies
 print_status "Installing system dependencies..."
-$SUDO_CMD DEBIAN_FRONTEND=noninteractive apt install -y \
+export DEBIAN_FRONTEND=noninteractive
+$SUDO_CMD -E apt install -y \
     python3 \
     python3-pip \
     python3-venv \
