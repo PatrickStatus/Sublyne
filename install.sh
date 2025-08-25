@@ -79,7 +79,7 @@ fi
 # Install gost (for tunneling)
 print_status "Installing gost..."
 GOST_VERSION="2.11.5"
-wget -O /tmp/gost.tar.gz "https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-amd64-${GOST_VERSION}.tar.gz"
+wget -O /tmp/gost.tar.gz "https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-amd64-${GOST_VERSION}.gz"
 tar -xzf /tmp/gost.tar.gz -C /tmp/
 mv "/tmp/gost-linux-amd64-${GOST_VERSION}/gost" /usr/local/bin/
 chmod +x /usr/local/bin/gost
