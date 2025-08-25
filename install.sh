@@ -19,18 +19,18 @@ apt-get update -qq
 apt-get install -y python3 python3-pip python3-venv git wget curl iptables-persistent > /dev/null 2>&1
 echo "✅ System packages updated"
 
-# Install Gost with timeout and retry
+# Install Gost with correct format
 echo "[2/8] Installing Gost..."
-GOST_URL="https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.tar.gz"
+GOST_URL="https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz"
 echo "Downloading Gost from: $GOST_URL"
 
 # Try downloading with timeout
-if timeout 60 wget -q --show-progress -O /tmp/gost.tar.gz "$GOST_URL"; then
+if timeout 60 wget -q --show-progress -O /tmp/gost.gz "$GOST_URL"; then
     echo "✅ Gost downloaded successfully"
 else
     echo "❌ Failed to download Gost. Trying alternative method..."
     # Try with curl as fallback
-    if timeout 60 curl -L -o /tmp/gost.tar.gz "$GOST_URL"; then
+    if timeout 60 curl -L -o /tmp/gost.gz "$GOST_URL"; then
         echo "✅ Gost downloaded with curl"
     else
         echo "❌ Failed to download Gost with both wget and curl"
@@ -39,19 +39,12 @@ else
     fi
 fi
 
-# Extract and install Gost
+# Extract and install Gost (it's a gzipped binary, not tar.gz)
 echo "Extracting and installing Gost..."
-if tar -xzf /tmp/gost.tar.gz -C /tmp/; then
-    if [ -f "/tmp/gost-linux-amd64-2.11.5/gost" ]; then
-        mv /tmp/gost-linux-amd64-2.11.5/gost /usr/local/bin/
-        chmod +x /usr/local/bin/gost
-        rm -rf /tmp/gost*
-        echo "✅ Gost installed successfully"
-    else
-        echo "❌ Gost binary not found in extracted files"
-        ls -la /tmp/gost-linux-amd64-2.11.5/
-        exit 1
-    fi
+if gunzip -c /tmp/gost.gz > /usr/local/bin/gost; then
+    chmod +x /usr/local/bin/gost
+    rm -f /tmp/gost.gz
+    echo "✅ Gost installed successfully"
 else
     echo "❌ Failed to extract Gost archive"
     exit 1
