@@ -29,28 +29,24 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if running as root
+# Determine if we need sudo or not
 if [[ $EUID -eq 0 ]]; then
-   print_error "This script should not be run as root for security reasons."
-   print_status "Please run as a regular user with sudo privileges."
-   exit 1
-fi
-
-# Check if sudo is available
-if ! command -v sudo &> /dev/null; then
-    print_error "sudo is required but not installed. Please install sudo first."
-    exit 1
+    SUDO_CMD=""
+    print_warning "Running as root user"
+else
+    SUDO_CMD="sudo"
+    print_status "Running as regular user with sudo"
 fi
 
 print_status "Starting Sublyne installation..."
 
 # Update system packages
 print_status "Updating system packages..."
-sudo apt update && sudo apt upgrade -y
+$SUDO_CMD apt update && $SUDO_CMD apt upgrade -y
 
 # Install required system dependencies
 print_status "Installing system dependencies..."
-sudo DEBIAN_FRONTEND=noninteractive apt install -y \
+$SUDO_CMD DEBIAN_FRONTEND=noninteractive apt install -y \
     python3 \
     python3-pip \
     python3-venv \
@@ -66,8 +62,8 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y \
 
 # Pre-configure iptables-persistent to avoid interactive prompts
 print_status "Configuring iptables-persistent..."
-echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
-echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v4 boolean true | $SUDO_CMD debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v6 boolean true | $SUDO_CMD debconf-set-selections
 
 # Install Gost (corrected download link and extraction)
 print_status "Installing Gost..."
@@ -75,74 +71,99 @@ GOST_VERSION="2.11.5"
 GOST_URL="https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-amd64-${GOST_VERSION}.gz"
 GOST_DIR="/opt/gost"
 
-sudo mkdir -p $GOST_DIR
+$SUDO_CMD mkdir -p $GOST_DIR
 cd /tmp
 wget $GOST_URL -O gost-linux-amd64.gz
 
 # Extract the .gz file (not tar.gz)
 gunzip gost-linux-amd64.gz
-sudo mv gost-linux-amd64 $GOST_DIR/gost
-sudo chmod +x $GOST_DIR/gost
+$SUDO_CMD mv gost-linux-amd64 $GOST_DIR/gost
+$SUDO_CMD chmod +x $GOST_DIR/gost
 
 # Add Gost to PATH
-echo "export PATH=\$PATH:$GOST_DIR" | sudo tee /etc/profile.d/gost.sh
-sudo chmod +x /etc/profile.d/gost.sh
+echo "export PATH=\$PATH:$GOST_DIR" | $SUDO_CMD tee /etc/profile.d/gost.sh
+$SUDO_CMD chmod +x /etc/profile.d/gost.sh
 
-# Create sublyne user
-print_status "Creating sublyne user..."
-if ! id "sublyne" &>/dev/null; then
-    sudo useradd -r -s /bin/bash -d /opt/sublyne -m sublyne
-    print_success "User 'sublyne' created successfully"
+# Create sublyne user (only if not running as root)
+if [[ $EUID -ne 0 ]]; then
+    print_status "Creating sublyne user..."
+    if ! id "sublyne" &>/dev/null; then
+        $SUDO_CMD useradd -r -s /bin/bash -d /opt/sublyne -m sublyne
+        print_success "User 'sublyne' created successfully"
+    else
+        print_warning "User 'sublyne' already exists"
+    fi
+    SUBLYNE_USER="sublyne"
+    SUBLYNE_GROUP="sublyne"
 else
-    print_warning "User 'sublyne' already exists"
+    print_status "Using root user for installation"
+    SUBLYNE_USER="root"
+    SUBLYNE_GROUP="root"
 fi
 
 # Download and extract Sublyne project
 print_status "Downloading Sublyne project..."
 PROJECT_DIR="/opt/sublyne"
-sudo mkdir -p $PROJECT_DIR
+$SUDO_CMD mkdir -p $PROJECT_DIR
 cd /tmp
 
 # Download the latest release or main branch
 wget https://github.com/PatrickStatus/Sublyne/archive/refs/heads/main.zip -O sublyne.zip
-sudo unzip -o sublyne.zip -d /tmp/
-sudo cp -r /tmp/Sublyne-main/* $PROJECT_DIR/
-sudo chown -R sublyne:sublyne $PROJECT_DIR
+$SUDO_CMD unzip -o sublyne.zip -d /tmp/
+$SUDO_CMD cp -r /tmp/Sublyne-main/* $PROJECT_DIR/
+$SUDO_CMD chown -R $SUBLYNE_USER:$SUBLYNE_GROUP $PROJECT_DIR
 
 # Setup Python virtual environment
 print_status "Setting up Python virtual environment..."
-sudo -u sublyne python3 -m venv $PROJECT_DIR/venv
-sudo -u sublyne $PROJECT_DIR/venv/bin/pip install --upgrade pip
+if [[ $EUID -eq 0 ]]; then
+    python3 -m venv $PROJECT_DIR/venv
+    $PROJECT_DIR/venv/bin/pip install --upgrade pip
+else
+    $SUDO_CMD -u sublyne python3 -m venv $PROJECT_DIR/venv
+    $SUDO_CMD -u sublyne $PROJECT_DIR/venv/bin/pip install --upgrade pip
+fi
 
 # Install Python dependencies
 print_status "Installing Python dependencies..."
 if [ -f "$PROJECT_DIR/requirements.txt" ]; then
-    sudo -u sublyne $PROJECT_DIR/venv/bin/pip install -r $PROJECT_DIR/requirements.txt
+    if [[ $EUID -eq 0 ]]; then
+        $PROJECT_DIR/venv/bin/pip install -r $PROJECT_DIR/requirements.txt
+    else
+        $SUDO_CMD -u sublyne $PROJECT_DIR/venv/bin/pip install -r $PROJECT_DIR/requirements.txt
+    fi
 else
     print_warning "requirements.txt not found, installing basic dependencies..."
-    sudo -u sublyne $PROJECT_DIR/venv/bin/pip install fastapi uvicorn sqlalchemy psutil
+    if [[ $EUID -eq 0 ]]; then
+        $PROJECT_DIR/venv/bin/pip install fastapi uvicorn sqlalchemy psutil
+    else
+        $SUDO_CMD -u sublyne $PROJECT_DIR/venv/bin/pip install fastapi uvicorn sqlalchemy psutil
+    fi
 fi
 
 # Create database directory
-sudo mkdir -p $PROJECT_DIR/database
-sudo chown -R sublyne:sublyne $PROJECT_DIR/database
+$SUDO_CMD mkdir -p $PROJECT_DIR/database
+$SUDO_CMD chown -R $SUBLYNE_USER:$SUBLYNE_GROUP $PROJECT_DIR/database
 
 # Initialize database
 print_status "Initializing database..."
 cd $PROJECT_DIR/backend
-sudo -u sublyne $PROJECT_DIR/venv/bin/python -c "from app.db.init_db import init_database; init_database()"
+if [[ $EUID -eq 0 ]]; then
+    $PROJECT_DIR/venv/bin/python -c "from app.db.init_db import init_database; init_database()"
+else
+    $SUDO_CMD -u sublyne $PROJECT_DIR/venv/bin/python -c "from app.db.init_db import init_database; init_database()"
+fi
 
 # Create systemd service
 print_status "Creating systemd service..."
-sudo tee /etc/systemd/system/sublyne.service > /dev/null <<EOF
+$SUDO_CMD tee /etc/systemd/system/sublyne.service > /dev/null <<EOF
 [Unit]
 Description=Sublyne Tunnel Management System
 After=network.target
 
 [Service]
 Type=simple
-User=sublyne
-Group=sublyne
+User=$SUBLYNE_USER
+Group=$SUBLYNE_GROUP
 WorkingDirectory=$PROJECT_DIR/backend
 Environment=PATH=$PROJECT_DIR/venv/bin:/opt/gost
 ExecStart=$PROJECT_DIR/venv/bin/python main.py
@@ -156,31 +177,31 @@ EOF
 # Setup firewall rules
 print_status "Configuring firewall rules..."
 # Allow SSH (port 22)
-sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+$SUDO_CMD iptables -A INPUT -p tcp --dport 22 -j ACCEPT
 # Allow Sublyne API (port 8000)
-sudo iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
+$SUDO_CMD iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
 # Allow established connections
-sudo iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+$SUDO_CMD iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 # Allow loopback
-sudo iptables -A INPUT -i lo -j ACCEPT
+$SUDO_CMD iptables -A INPUT -i lo -j ACCEPT
 # Drop other incoming connections
-sudo iptables -A INPUT -j DROP
+$SUDO_CMD iptables -A INPUT -j DROP
 
 # Save iptables rules
-sudo iptables-save | sudo tee /etc/iptables/rules.v4 > /dev/null
-sudo ip6tables-save | sudo tee /etc/iptables/rules.v6 > /dev/null
+$SUDO_CMD iptables-save | $SUDO_CMD tee /etc/iptables/rules.v4 > /dev/null
+$SUDO_CMD ip6tables-save | $SUDO_CMD tee /etc/iptables/rules.v6 > /dev/null
 
 # Enable and start services
 print_status "Enabling and starting services..."
-sudo systemctl daemon-reload
-sudo systemctl enable sublyne
-sudo systemctl enable netfilter-persistent
-sudo systemctl start netfilter-persistent
-sudo systemctl start sublyne
+$SUDO_CMD systemctl daemon-reload
+$SUDO_CMD systemctl enable sublyne
+$SUDO_CMD systemctl enable netfilter-persistent
+$SUDO_CMD systemctl start netfilter-persistent
+$SUDO_CMD systemctl start sublyne
 
 # Create startup script for traffic rules restoration
 print_status "Creating startup script..."
-sudo tee $PROJECT_DIR/restore_traffic.py > /dev/null <<'EOF'
+$SUDO_CMD tee $PROJECT_DIR/restore_traffic.py > /dev/null <<'EOF'
 #!/usr/bin/env python3
 import subprocess
 import sqlite3
@@ -217,31 +238,35 @@ if __name__ == "__main__":
     restore_traffic_rules()
 EOF
 
-sudo chmod +x $PROJECT_DIR/restore_traffic.py
-sudo chown sublyne:sublyne $PROJECT_DIR/restore_traffic.py
+$SUDO_CMD chmod +x $PROJECT_DIR/restore_traffic.py
+$SUDO_CMD chown $SUBLYNE_USER:$SUBLYNE_GROUP $PROJECT_DIR/restore_traffic.py
 
 # Add to crontab for startup
-(sudo crontab -u sublyne -l 2>/dev/null; echo "@reboot $PROJECT_DIR/venv/bin/python $PROJECT_DIR/restore_traffic.py") | sudo crontab -u sublyne -
+if [[ $EUID -eq 0 ]]; then
+    (crontab -l 2>/dev/null; echo "@reboot $PROJECT_DIR/venv/bin/python $PROJECT_DIR/restore_traffic.py") | crontab -
+else
+    ($SUDO_CMD crontab -u sublyne -l 2>/dev/null; echo "@reboot $PROJECT_DIR/venv/bin/python $PROJECT_DIR/restore_traffic.py") | $SUDO_CMD crontab -u sublyne -
+fi
 
 # Final status check
 print_status "Checking service status..."
 sleep 5
-if sudo systemctl is-active --quiet sublyne; then
+if $SUDO_CMD systemctl is-active --quiet sublyne; then
     print_success "Sublyne service is running successfully!"
 else
-    print_error "Sublyne service failed to start. Check logs with: sudo journalctl -u sublyne -f"
+    print_error "Sublyne service failed to start. Check logs with: $SUDO_CMD journalctl -u sublyne -f"
 fi
 
 # Display final information
 print_success "\n=== Sublyne Installation Completed ==="
-print_status "Service Status: $(sudo systemctl is-active sublyne)"
+print_status "Service Status: $($SUDO_CMD systemctl is-active sublyne)"
 print_status "API Endpoint: http://$(hostname -I | awk '{print $1}'):8000"
 print_status "API Documentation: http://$(hostname -I | awk '{print $1}'):8000/docs"
 print_status "\nUseful Commands:"
-print_status "  - Check service status: sudo systemctl status sublyne"
-print_status "  - View logs: sudo journalctl -u sublyne -f"
-print_status "  - Restart service: sudo systemctl restart sublyne"
-print_status "  - Stop service: sudo systemctl stop sublyne"
+print_status "  - Check service status: $SUDO_CMD systemctl status sublyne"
+print_status "  - View logs: $SUDO_CMD journalctl -u sublyne -f"
+print_status "  - Restart service: $SUDO_CMD systemctl restart sublyne"
+print_status "  - Stop service: $SUDO_CMD systemctl stop sublyne"
 print_status "\nDefault API credentials:"
 print_status "  - Username: admin"
 print_status "  - Password: admin"
