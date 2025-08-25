@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-ip tunnel add "{{ interface }}" mode gre local "{{ ip_dest }}" remote "{{ ip_origin }}" ttl 255 key "{{ key }}"
-ip addr add "{{ dest_private_ip }}" dev "{{ interface }}"
-ip link set dev "{{ interface }}" mtu 1472
-ip link set dev "{{ interface }}" up
