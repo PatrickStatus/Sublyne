@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Simple Sublyne Installation Script
+# Simple Sublyne Installation Script with Better Error Handling
 set -e  # Exit on any error
 
 echo "=== Sublyne Installation Script ==="
@@ -17,19 +17,61 @@ echo "[1/8] Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y python3 python3-pip python3-venv git wget curl iptables-persistent > /dev/null 2>&1
+echo "✅ System packages updated"
 
-# Install Gost
+# Install Gost with timeout and retry
 echo "[2/8] Installing Gost..."
-wget -q -O /tmp/gost.tar.gz https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.tar.gz
-tar -xzf /tmp/gost.tar.gz -C /tmp/
-mv /tmp/gost-linux-amd64-2.11.5/gost /usr/local/bin/
-chmod +x /usr/local/bin/gost
-rm -rf /tmp/gost*
+GOST_URL="https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.tar.gz"
+echo "Downloading Gost from: $GOST_URL"
+
+# Try downloading with timeout
+if timeout 60 wget -q --show-progress -O /tmp/gost.tar.gz "$GOST_URL"; then
+    echo "✅ Gost downloaded successfully"
+else
+    echo "❌ Failed to download Gost. Trying alternative method..."
+    # Try with curl as fallback
+    if timeout 60 curl -L -o /tmp/gost.tar.gz "$GOST_URL"; then
+        echo "✅ Gost downloaded with curl"
+    else
+        echo "❌ Failed to download Gost with both wget and curl"
+        echo "Please check your internet connection and try again"
+        exit 1
+    fi
+fi
+
+# Extract and install Gost
+echo "Extracting and installing Gost..."
+if tar -xzf /tmp/gost.tar.gz -C /tmp/; then
+    if [ -f "/tmp/gost-linux-amd64-2.11.5/gost" ]; then
+        mv /tmp/gost-linux-amd64-2.11.5/gost /usr/local/bin/
+        chmod +x /usr/local/bin/gost
+        rm -rf /tmp/gost*
+        echo "✅ Gost installed successfully"
+    else
+        echo "❌ Gost binary not found in extracted files"
+        ls -la /tmp/gost-linux-amd64-2.11.5/
+        exit 1
+    fi
+else
+    echo "❌ Failed to extract Gost archive"
+    exit 1
+fi
+
+# Verify Gost installation
+if /usr/local/bin/gost -V > /dev/null 2>&1; then
+    echo "✅ Gost verification successful"
+else
+    echo "❌ Gost installation verification failed"
+    exit 1
+fi
 
 # Create user
 echo "[3/8] Creating sublyne user..."
 if ! id "sublyne" &>/dev/null; then
     useradd -r -s /bin/bash -d /opt/sublyne sublyne
+    echo "✅ User sublyne created"
+else
+    echo "✅ User sublyne already exists"
 fi
 
 # Download project
@@ -37,7 +79,13 @@ echo "[4/8] Downloading Sublyne project..."
 rm -rf /tmp/sublyne-download
 mkdir -p /tmp/sublyne-download
 cd /tmp/sublyne-download
-git clone -q https://github.com/PatrickStatus/Sublyne.git .
+
+if timeout 120 git clone -q https://github.com/PatrickStatus/Sublyne.git .; then
+    echo "✅ Project downloaded successfully"
+else
+    echo "❌ Failed to clone repository"
+    exit 1
+fi
 
 # Setup project directory
 echo "[5/8] Setting up project files..."
@@ -45,6 +93,7 @@ rm -rf /opt/sublyne
 mkdir -p /opt/sublyne
 cp -r * /opt/sublyne/
 chown -R sublyne:sublyne /opt/sublyne
+echo "✅ Project files copied"
 
 # Setup Python environment
 echo "[6/8] Setting up Python environment..."
@@ -52,11 +101,13 @@ cd /opt/sublyne
 sudo -u sublyne python3 -m venv venv
 sudo -u sublyne ./venv/bin/pip install -q --upgrade pip
 sudo -u sublyne ./venv/bin/pip install -q -r requirements.txt
+echo "✅ Python environment ready"
 
 # Initialize database
 echo "[7/8] Initializing database..."
 cd /opt/sublyne/backend
 sudo -u sublyne ../venv/bin/python -c "from app.db.init_db import init_database; init_database()" 2>/dev/null || echo "Database already exists"
+echo "✅ Database initialized"
 
 # Create and start service
 echo "[8/8] Creating system service..."
@@ -84,11 +135,13 @@ EOF
 systemctl daemon-reload
 systemctl enable sublyne
 systemctl start sublyne
+echo "✅ Service created and started"
 
 # Cleanup
 rm -rf /tmp/sublyne-download
 
 # Check status
+echo "Checking service status..."
 sleep 3
 if systemctl is-active --quiet sublyne; then
     echo "✅ Installation completed successfully!"
@@ -96,6 +149,7 @@ if systemctl is-active --quiet sublyne; then
     echo "📊 Check status: systemctl status sublyne"
     echo "📋 View logs: journalctl -u sublyne -f"
 else
-    echo "❌ Service failed to start. Check logs: journalctl -u sublyne"
+    echo "❌ Service failed to start. Checking logs..."
+    journalctl -u sublyne --no-pager -n 10
     exit 1
 fi
