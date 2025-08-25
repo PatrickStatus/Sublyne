@@ -32,6 +32,9 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Set non-interactive mode for apt
+export DEBIAN_FRONTEND=noninteractive
+
 # Detect OS
 if [ -f /etc/os-release ]; then
     . /etc/os-release
@@ -55,6 +58,13 @@ elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"Red Hat"* ]] || [[ "$OS" == *"Ro
 else
     print_error "Unsupported OS: $OS"
     exit 1
+fi
+
+# Pre-configure iptables-persistent to avoid interactive prompts
+if [ "$PACKAGE_MANAGER" = "apt" ]; then
+    print_status "Pre-configuring iptables-persistent..."
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
 fi
 
 # Install required system packages
@@ -180,9 +190,15 @@ iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
 # Allow ping
 iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
 
-# Save iptables rules
+# Save iptables rules without prompts
+print_status "Saving iptables rules..."
 if [ "$PACKAGE_MANAGER" = "apt" ]; then
+    # Create directories if they don't exist
+    mkdir -p /etc/iptables
+    # Save rules directly
     iptables-save > /etc/iptables/rules.v4
+    ip6tables-save > /etc/iptables/rules.v6
+    print_status "Iptables rules saved to /etc/iptables/"
 elif [ "$PACKAGE_MANAGER" = "yum" ]; then
     service iptables save
 fi
