@@ -91,6 +91,15 @@ echo "✅ Project files copied"
 # Setup Python environment
 echo "[6/8] Setting up Python environment..."
 cd /opt/sublyne
+
+# Check if requirements.txt exists
+if [ ! -f "requirements.txt" ]; then
+    echo "❌ requirements.txt not found in /opt/sublyne"
+    echo "Available files:"
+    ls -la
+    exit 1
+fi
+
 sudo -u sublyne python3 -m venv venv
 sudo -u sublyne ./venv/bin/pip install -q --upgrade pip
 sudo -u sublyne ./venv/bin/pip install -q -r requirements.txt
