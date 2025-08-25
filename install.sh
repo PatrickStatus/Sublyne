@@ -1,27 +1,24 @@
 #!/bin/bash
 
 # Sublyne Auto Installation Script
-# Usage: curl -sSL https://raw.githubusercontent.com/PatrickStatus/Sublyne/main/install.sh | sudo bash
+# This script automatically installs Sublyne tunnel management system
 
 set -e  # Exit on any error
-
-echo "=== Sublyne Auto Installation Script ==="
-echo "Starting installation..."
-
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run this script as root (use sudo)"
-    exit 1
-fi
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Function to print colored output
 print_status() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
 print_warning() {
@@ -32,227 +29,221 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Set non-interactive mode for apt
-export DEBIAN_FRONTEND=noninteractive
+# Check if running as root
+if [[ $EUID -eq 0 ]]; then
+   print_error "This script should not be run as root for security reasons."
+   print_status "Please run as a regular user with sudo privileges."
+   exit 1
+fi
 
-# Detect OS
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=$NAME
-    VER=$VERSION_ID
-else
-    print_error "Cannot detect OS"
+# Check if sudo is available
+if ! command -v sudo &> /dev/null; then
+    print_error "sudo is required but not installed. Please install sudo first."
     exit 1
 fi
 
-print_status "Detected OS: $OS $VER"
+print_status "Starting Sublyne installation..."
 
 # Update system packages
 print_status "Updating system packages..."
-if [[ "$OS" == *"Ubuntu"* ]] || [[ "$OS" == *"Debian"* ]]; then
-    apt update && apt upgrade -y
-    PACKAGE_MANAGER="apt"
-elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"Red Hat"* ]] || [[ "$OS" == *"Rocky"* ]]; then
-    yum update -y
-    PACKAGE_MANAGER="yum"
-else
-    print_error "Unsupported OS: $OS"
-    exit 1
-fi
+sudo apt update && sudo apt upgrade -y
+
+# Install required system dependencies
+print_status "Installing system dependencies..."
+sudo DEBIAN_FRONTEND=noninteractive apt install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    curl \
+    wget \
+    unzip \
+    iptables \
+    iptables-persistent \
+    netfilter-persistent \
+    systemd \
+    cron
 
 # Pre-configure iptables-persistent to avoid interactive prompts
-if [ "$PACKAGE_MANAGER" = "apt" ]; then
-    print_status "Pre-configuring iptables-persistent..."
-    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-fi
+print_status "Configuring iptables-persistent..."
+echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
 
-# Install required system packages
-print_status "Installing system dependencies..."
-if [ "$PACKAGE_MANAGER" = "apt" ]; then
-    apt install -y python3 python3-pip python3-venv unzip curl wget iptables-persistent net-tools
-elif [ "$PACKAGE_MANAGER" = "yum" ]; then
-    yum install -y python3 python3-pip unzip curl wget iptables-services net-tools
-    systemctl enable iptables
-fi
-
-# Install gost (for tunneling)
-print_status "Installing gost..."
+# Install Gost (corrected download link and extraction)
+print_status "Installing Gost..."
 GOST_VERSION="2.11.5"
-wget -O /tmp/gost.tar.gz "https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-amd64-${GOST_VERSION}.gz"
-tar -xzf /tmp/gost.tar.gz -C /tmp/
-mv "/tmp/gost-linux-amd64-${GOST_VERSION}/gost" /usr/local/bin/
-chmod +x /usr/local/bin/gost
-rm -rf /tmp/gost*
-print_status "Gost installed successfully"
+GOST_URL="https://github.com/ginuerzh/gost/releases/download/v${GOST_VERSION}/gost-linux-amd64-${GOST_VERSION}.gz"
+GOST_DIR="/opt/gost"
+
+sudo mkdir -p $GOST_DIR
+cd /tmp
+wget $GOST_URL -O gost-linux-amd64.gz
+
+# Extract the .gz file (not tar.gz)
+gunzip gost-linux-amd64.gz
+sudo mv gost-linux-amd64 $GOST_DIR/gost
+sudo chmod +x $GOST_DIR/gost
+
+# Add Gost to PATH
+echo "export PATH=\$PATH:$GOST_DIR" | sudo tee /etc/profile.d/gost.sh
+sudo chmod +x /etc/profile.d/gost.sh
 
 # Create sublyne user
 print_status "Creating sublyne user..."
 if ! id "sublyne" &>/dev/null; then
-    useradd -m -s /bin/bash sublyne
-    print_status "User 'sublyne' created"
+    sudo useradd -r -s /bin/bash -d /opt/sublyne -m sublyne
+    print_success "User 'sublyne' created successfully"
 else
     print_warning "User 'sublyne' already exists"
 fi
 
-# Create application directory
-print_status "Setting up application directory..."
-APP_DIR="/opt/sublyne"
-mkdir -p $APP_DIR
-chown sublyne:sublyne $APP_DIR
-
-# Download and extract project from GitHub
-print_status "Downloading project from GitHub..."
+# Download and extract Sublyne project
+print_status "Downloading Sublyne project..."
+PROJECT_DIR="/opt/sublyne"
+sudo mkdir -p $PROJECT_DIR
 cd /tmp
-wget -O sublyne.zip "https://github.com/PatrickStatus/Sublyne/raw/main/sublyne.zip"
-if [ ! -f "sublyne.zip" ]; then
-    print_error "Failed to download sublyne.zip from GitHub"
-    exit 1
-fi
 
-print_status "Extracting project files..."
-unzip -o sublyne.zip -d $APP_DIR
-chown -R sublyne:sublyne $APP_DIR
-rm -f /tmp/sublyne.zip
+# Download the latest release or main branch
+wget https://github.com/PatrickStatus/Sublyne/archive/refs/heads/main.zip -O sublyne.zip
+sudo unzip -o sublyne.zip -d /tmp/
+sudo cp -r /tmp/Sublyne-main/* $PROJECT_DIR/
+sudo chown -R sublyne:sublyne $PROJECT_DIR
 
 # Setup Python virtual environment
 print_status "Setting up Python virtual environment..."
-su - sublyne -c "cd $APP_DIR && python3 -m venv venv"
-su - sublyne -c "cd $APP_DIR && source venv/bin/activate && pip install --upgrade pip"
+sudo -u sublyne python3 -m venv $PROJECT_DIR/venv
+sudo -u sublyne $PROJECT_DIR/venv/bin/pip install --upgrade pip
 
-# Check if requirements.txt exists
-if [ -f "$APP_DIR/requirements.txt" ]; then
-    su - sublyne -c "cd $APP_DIR && source venv/bin/activate && pip install -r requirements.txt"
+# Install Python dependencies
+print_status "Installing Python dependencies..."
+if [ -f "$PROJECT_DIR/requirements.txt" ]; then
+    sudo -u sublyne $PROJECT_DIR/venv/bin/pip install -r $PROJECT_DIR/requirements.txt
 else
-    print_warning "requirements.txt not found, installing basic dependencies"
-    su - sublyne -c "cd $APP_DIR && source venv/bin/activate && pip install fastapi uvicorn sqlalchemy psutil"
+    print_warning "requirements.txt not found, installing basic dependencies..."
+    sudo -u sublyne $PROJECT_DIR/venv/bin/pip install fastapi uvicorn sqlalchemy psutil
 fi
 
 # Create database directory
-print_status "Setting up database..."
-mkdir -p $APP_DIR/database
-chown sublyne:sublyne $APP_DIR/database
+sudo mkdir -p $PROJECT_DIR/database
+sudo chown -R sublyne:sublyne $PROJECT_DIR/database
+
+# Initialize database
+print_status "Initializing database..."
+cd $PROJECT_DIR/backend
+sudo -u sublyne $PROJECT_DIR/venv/bin/python -c "from app.db.init_db import init_database; init_database()"
 
 # Create systemd service
 print_status "Creating systemd service..."
-cat > /etc/systemd/system/sublyne.service << EOF
+sudo tee /etc/systemd/system/sublyne.service > /dev/null <<EOF
 [Unit]
-Description=Sublyne Tunnel Management API
+Description=Sublyne Tunnel Management System
 After=network.target
 
 [Service]
 Type=simple
 User=sublyne
 Group=sublyne
-WorkingDirectory=$APP_DIR/backend
-Environment=PATH=$APP_DIR/venv/bin
-ExecStart=$APP_DIR/venv/bin/python main.py
+WorkingDirectory=$PROJECT_DIR/backend
+Environment=PATH=$PROJECT_DIR/venv/bin:/opt/gost
+ExecStart=$PROJECT_DIR/venv/bin/python main.py
 Restart=always
 RestartSec=3
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Enable IP forwarding
-print_status "Enabling IP forwarding..."
-echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
-echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf
-sysctl -p
-
 # Setup firewall rules
-print_status "Setting up firewall rules..."
-# Clear existing rules
-iptables -F
-iptables -X
-iptables -t nat -F
-iptables -t nat -X
-
-# Set default policies
-iptables -P INPUT DROP
-iptables -P FORWARD ACCEPT
-iptables -P OUTPUT ACCEPT
-
-# Allow loopback
-iptables -A INPUT -i lo -j ACCEPT
-
-# Allow established connections
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-
+print_status "Configuring firewall rules..."
 # Allow SSH (port 22)
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+# Allow Sublyne API (port 8000)
+sudo iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
+# Allow established connections
+sudo iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+# Allow loopback
+sudo iptables -A INPUT -i lo -j ACCEPT
+# Drop other incoming connections
+sudo iptables -A INPUT -j DROP
 
-# Allow API port (8000)
-iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
+# Save iptables rules
+sudo iptables-save | sudo tee /etc/iptables/rules.v4 > /dev/null
+sudo ip6tables-save | sudo tee /etc/iptables/rules.v6 > /dev/null
 
-# Allow ping
-iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
+# Enable and start services
+print_status "Enabling and starting services..."
+sudo systemctl daemon-reload
+sudo systemctl enable sublyne
+sudo systemctl enable netfilter-persistent
+sudo systemctl start netfilter-persistent
+sudo systemctl start sublyne
 
-# Save iptables rules without prompts
-print_status "Saving iptables rules..."
-if [ "$PACKAGE_MANAGER" = "apt" ]; then
-    # Create directories if they don't exist
-    mkdir -p /etc/iptables
-    # Save rules directly
-    iptables-save > /etc/iptables/rules.v4
-    ip6tables-save > /etc/iptables/rules.v6
-    print_status "Iptables rules saved to /etc/iptables/"
-elif [ "$PACKAGE_MANAGER" = "yum" ]; then
-    service iptables save
-fi
+# Create startup script for traffic rules restoration
+print_status "Creating startup script..."
+sudo tee $PROJECT_DIR/restore_traffic.py > /dev/null <<'EOF'
+#!/usr/bin/env python3
+import subprocess
+import sqlite3
+import logging
 
-# Create startup script for iptables restoration (if exists)
-if [ -f "$APP_DIR/backend/startup.sh" ]; then
-    print_status "Setting up startup script..."
-    cp $APP_DIR/backend/startup.sh /etc/init.d/sublyne-startup
-    chmod +x /etc/init.d/sublyne-startup
-    if [ "$PACKAGE_MANAGER" = "apt" ]; then
-        update-rc.d sublyne-startup defaults
-    elif [ "$PACKAGE_MANAGER" = "yum" ]; then
-        chkconfig --add sublyne-startup
-        chkconfig sublyne-startup on
-    fi
-fi
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Start and enable service
-print_status "Starting Sublyne service..."
-systemctl daemon-reload
-systemctl enable sublyne
-systemctl start sublyne
+def restore_traffic_rules():
+    try:
+        conn = sqlite3.connect('/opt/sublyne/database/sublyne.db')
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT interface_salt FROM tunnels WHERE status = 'active'")
+        active_tunnels = cursor.fetchall()
+        
+        for tunnel in active_tunnels:
+            interface = tunnel[0]
+            # Restore traffic monitoring rules
+            subprocess.run([
+                'iptables', '-A', 'FORWARD', '-i', interface, '-j', 'ACCEPT'
+            ], check=True)
+            subprocess.run([
+                'iptables', '-A', 'FORWARD', '-o', interface, '-j', 'ACCEPT'
+            ], check=True)
+            
+        conn.close()
+        logger.info(f"Restored traffic rules for {len(active_tunnels)} tunnels")
+        
+    except Exception as e:
+        logger.error(f"Error restoring traffic rules: {e}")
 
-# Wait for service to start
-print_status "Waiting for service to start..."
-sleep 10
+if __name__ == "__main__":
+    restore_traffic_rules()
+EOF
 
-# Check service status
-if systemctl is-active --quiet sublyne; then
-    SERVER_IP=$(hostname -I | awk '{print $1}')
-    echo ""
-    echo -e "${GREEN}✅ Sublyne service is running successfully!${NC}"
-    echo -e "${GREEN}🌐 API is available at: http://${SERVER_IP}:8000${NC}"
-    echo -e "${GREEN}📚 API Documentation: http://${SERVER_IP}:8000/docs${NC}"
-    echo -e "${GREEN}🔧 Redoc Documentation: http://${SERVER_IP}:8000/redoc${NC}"
+sudo chmod +x $PROJECT_DIR/restore_traffic.py
+sudo chown sublyne:sublyne $PROJECT_DIR/restore_traffic.py
+
+# Add to crontab for startup
+(sudo crontab -u sublyne -l 2>/dev/null; echo "@reboot $PROJECT_DIR/venv/bin/python $PROJECT_DIR/restore_traffic.py") | sudo crontab -u sublyne -
+
+# Final status check
+print_status "Checking service status..."
+sleep 5
+if sudo systemctl is-active --quiet sublyne; then
+    print_success "Sublyne service is running successfully!"
 else
-    echo -e "${RED}❌ Sublyne service failed to start${NC}"
-    echo -e "${YELLOW}Check logs with: journalctl -u sublyne -f${NC}"
-    echo -e "${YELLOW}Service status: systemctl status sublyne${NC}"
-    exit 1
+    print_error "Sublyne service failed to start. Check logs with: sudo journalctl -u sublyne -f"
 fi
 
-echo ""
-echo "=== Installation completed successfully! ==="
-echo ""
-echo -e "${YELLOW}Useful commands:${NC}"
-echo "  Start service:   systemctl start sublyne"
-echo "  Stop service:    systemctl stop sublyne"
-echo "  Restart service: systemctl restart sublyne"
-echo "  View logs:       journalctl -u sublyne -f"
-echo "  Service status:  systemctl status sublyne"
-echo ""
-echo -e "${YELLOW}Default admin credentials:${NC}"
-echo "  Username: admin"
-echo "  Password: admin123"
-echo ""
-echo -e "${GREEN}🎉 Sublyne is ready to use!${NC}"
+# Display final information
+print_success "\n=== Sublyne Installation Completed ==="
+print_status "Service Status: $(sudo systemctl is-active sublyne)"
+print_status "API Endpoint: http://$(hostname -I | awk '{print $1}'):8000"
+print_status "API Documentation: http://$(hostname -I | awk '{print $1}'):8000/docs"
+print_status "\nUseful Commands:"
+print_status "  - Check service status: sudo systemctl status sublyne"
+print_status "  - View logs: sudo journalctl -u sublyne -f"
+print_status "  - Restart service: sudo systemctl restart sublyne"
+print_status "  - Stop service: sudo systemctl stop sublyne"
+print_status "\nDefault API credentials:"
+print_status "  - Username: admin"
+print_status "  - Password: admin"
+
+print_success "Installation completed successfully!"
